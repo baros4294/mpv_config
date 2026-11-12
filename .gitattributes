@@ -1,0 +1,14 @@
+# Text files keep LF in the repository; Git converts on checkout as configured.
+* text=auto eol=lf
+
+# Upstream binaries and fonts must never be touched.
+*.exe   binary
+*.otf   binary
+*.ttf   binary
+scripts/uosc/bin/* binary
+
+# Vendored upstream code: hide from diffs stats and language detection.
+scripts/uosc/** linguist-vendored
+scripts/thumbfast.lua linguist-vendored
+shaders/** linguist-vendored
+fonts/** linguist-vendored
