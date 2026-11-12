@@ -27,9 +27,9 @@ Download `mpv_config-<version>.zip` from the [latest release](https://github.com
 ## Upkeep
 
 - **Validate** (`.github/workflows/validate.yml`) runs on every push and pull request. It checks that each `uosc/...` binding in `input.conf` and each option in `script-opts/` still exists in the bundled scripts, and that every Lua file compiles under LuaJIT. Run `python3 .github/scripts/check.py` locally for the same check without the Lua compile.
-- **Update upstream scripts** (`.github/workflows/update-upstream.yml`) runs weekly. When uosc has a new release or thumbfast has new commits, it validates them and opens a pull request with the change and the SHA-256 of the bundled binaries. Review and merge it; nothing changes on `main` until you do.
+- **Update upstream scripts** (`.github/workflows/update-upstream.yml`) runs weekly. When uosc has a new release or thumbfast has new commits, it validates them and opens a pull request with the change and the SHA-256 of the bundled binaries, then runs Validate on it. A uosc minor or patch release whose bundled `ziggy` binaries are unchanged merges itself once the checks pass. Everything else waits for you to read the diff: thumbfast changes (it follows a branch, not releases), any change to a bundled executable, and new uosc major versions.
 - **Release** (`.github/workflows/release.yml`): pushing a `vMAJOR.MINOR.PATCH` tag publishes a release with a ready-to-extract zip and its SHA-256.
-- **Dependabot** keeps the workflows' pinned actions current, and **CodeQL** scans the workflows.
+- **Dependabot** keeps the workflows' pinned actions current; its updates merge themselves when Validate passes and the major version is unchanged, and **CodeQL** scans the workflows.
 
 ## License
 

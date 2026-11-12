@@ -1,7 +1,8 @@
 name: Update upstream scripts
 
 # Weekly: pulls the latest uosc release and thumbfast, checks them against this config,
-# and opens (or refreshes) one pull request. Nothing reaches main until it is merged.
+# and opens (or refreshes) one pull request, then starts Validate on it. Validate merges it when uosc keeps its
+# major version and changes no bundled binary; thumbfast and binary changes wait for a person.
 # Needs Settings > Actions > General > "Allow GitHub Actions to create and approve pull requests".
 on:
   schedule:
@@ -20,6 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
+      actions: write
       contents: write
       pull-requests: write
     env:
@@ -114,3 +116,5 @@ jobs:
           else
             gh pr edit "$BRANCH" --body "$body"
           fi
+          # A pull request opened with this token starts no checks itself, so start Validate on its branch.
+          gh workflow run validate.yml --ref "$BRANCH"
