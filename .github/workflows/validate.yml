@@ -1,0 +1,33 @@
+name: Validate
+
+# Checks that input.conf and script-opts still match the bundled scripts, and that every Lua file compiles.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check config against scripts
+        run: python3 .github/scripts/check.py
+
+      # mpv runs scripts on LuaJIT, so compile with it.
+      - name: Compile Lua
+        run: |
+          sudo apt-get install -y --no-install-recommends luajit > /dev/null
+          find scripts -name '*.lua' -print0 | xargs -0 -n1 sh -c 'luajit -b "$0" /dev/null || exit 255'

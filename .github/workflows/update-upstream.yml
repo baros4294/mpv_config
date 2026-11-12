@@ -1,0 +1,116 @@
+name: Update upstream scripts
+
+# Weekly: pulls the latest uosc release and thumbfast, checks them against this config,
+# and opens (or refreshes) one pull request. Nothing reaches main until it is merged.
+# Needs Settings > Actions > General > "Allow GitHub Actions to create and approve pull requests".
+on:
+  schedule:
+    - cron: "41 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      BRANCH: automation/upstream-update
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Update uosc
+        id: uosc
+        run: |
+          current=$(sed -n "s/^local uosc_version = '\(.*\)'/\1/p" scripts/uosc/main.lua)
+          latest=$(gh api repos/tomasklaen/uosc/releases/latest --jq .tag_name)
+          echo "current=$current" >> "$GITHUB_OUTPUT"
+          echo "latest=$latest" >> "$GITHUB_OUTPUT"
+          newest=$(printf '%s\n%s\n' "$current" "$latest" | sort -V | tail -n1)
+          if [ "$latest" = "$current" ] || [ "$newest" != "$latest" ]; then
+            echo "uosc $current is current."
+            exit 0
+          fi
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/uosc.zip" \
+            "https://github.com/tomasklaen/uosc/releases/download/$latest/uosc.zip"
+          rm -rf scripts/uosc fonts/uosc_icons.otf fonts/uosc_textures.ttf
+          unzip -q -o "$RUNNER_TEMP/uosc.zip" 'scripts/uosc/*' 'fonts/*' -d .
+          {
+            echo 'ziggy<<EOF'
+            sha256sum scripts/uosc/bin/*
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Update thumbfast
+        id: thumbfast
+        run: |
+          sha=$(gh api repos/po5/thumbfast/commits/master --jq .sha)
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          curl -fsSL --retry 3 -o scripts/thumbfast.lua \
+            "https://raw.githubusercontent.com/po5/thumbfast/$sha/thumbfast.lua"
+
+      - name: Stop if nothing changed
+        id: diff
+        run: |
+          git add -A
+          if git diff --cached --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            git diff --cached --stat
+          fi
+
+      # Pull requests opened with this token do not trigger other workflows, so validate here.
+      - name: Validate
+        if: steps.diff.outputs.changed == 'true'
+        run: |
+          python3 .github/scripts/check.py
+          sudo apt-get install -y --no-install-recommends luajit > /dev/null
+          find scripts -name '*.lua' -print0 | xargs -0 -n1 sh -c 'luajit -b "$0" /dev/null || exit 255'
+
+      - name: Open or refresh the pull request
+        if: steps.diff.outputs.changed == 'true'
+        env:
+          UOSC_CURRENT: ${{ steps.uosc.outputs.current }}
+          UOSC_LATEST: ${{ steps.uosc.outputs.latest }}
+          ZIGGY: ${{ steps.uosc.outputs.ziggy }}
+          THUMBFAST_SHA: ${{ steps.thumbfast.outputs.sha }}
+          BASE: ${{ github.event.repository.default_branch }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898729+github-actions[bot]@users.noreply.github.com"
+          gh auth setup-git
+          git switch -c "$BRANCH"
+          git commit -q -m "chore: update upstream scripts"
+          git push --force origin "$BRANCH"
+          body=$(cat <<EOF
+          Automated weekly update. \`.github/scripts/check.py\` and the LuaJIT compile passed on these files.
+
+          - uosc: $UOSC_CURRENT → $UOSC_LATEST (unchanged if equal) — https://github.com/tomasklaen/uosc/releases
+          - thumbfast: po5/thumbfast@$THUMBFAST_SHA
+
+          Bundled ziggy binaries (SHA-256, from the uosc release):
+          \`\`\`
+          ${ZIGGY:-unchanged}
+          \`\`\`
+
+          Before merging, compare \`script-opts/uosc.conf\` with the release's \`uosc.conf\` for new options.
+          EOF
+          )
+          if [ "$(gh pr list --head "$BRANCH" --state open --json number --jq length)" = "0" ]; then
+            gh pr create --head "$BRANCH" --base "$BASE" \
+              --title "chore: update upstream scripts" --body "$body"
+          else
+            gh pr edit "$BRANCH" --body "$body"
+          fi
