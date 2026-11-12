@@ -31,3 +31,31 @@ jobs:
         run: |
           sudo apt-get install -y --no-install-recommends luajit > /dev/null
           find scripts -name '*.lua' -print0 | xargs -0 -n1 sh -c 'luajit -b "$0" /dev/null || exit 255'
+
+  # The weekly "Update upstream scripts" pull request starts this workflow by hand (pull requests opened with
+  # the Actions token start no checks on their own). When the checks above pass and uosc keeps its major
+  # version, merge it; a new uosc major version waits for a person.
+  merge-upstream-update:
+    needs: validate
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/automation/upstream-update'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Merge unless uosc changes major version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          TESTED_SHA: ${{ github.sha }}
+          BASE: ${{ github.event.repository.default_branch }}
+        run: |
+          version() {
+            gh api -H "Accept: application/vnd.github.raw" "repos/$REPO/contents/scripts/uosc/main.lua?ref=$1" |
+              sed -n "s/^local uosc_version = '\(.*\)'/\1/p"
+          }
+          old=$(version "$BASE"); new=$(version "$TESTED_SHA")
+          [[ -n "$old" && -n "$new" ]] || { echo "Couldn't read the uosc versions; leaving it for a person."; exit 0; }
+          if [[ "${old%%.*}" != "${new%%.*}" ]]; then echo "uosc $old -> $new is a major update; leaving it for a person."; exit 0; fi
+          gh pr merge automation/upstream-update --repo "$REPO" --squash --match-head-commit "$TESTED_SHA"
