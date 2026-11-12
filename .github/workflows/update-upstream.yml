@@ -1,12 +1,13 @@
 name: Update upstream scripts
 
-# Weekly: pulls the latest uosc release and thumbfast, checks them against this config,
+# Monthly: pulls the newest uosc release and thumbfast commit that are at least 30 days old, checks them against
+# this config,
 # and opens (or refreshes) one pull request, then starts Validate on it. Validate merges it when uosc keeps its
 # major version and changes no bundled binary; thumbfast and binary changes wait for a person.
 # Needs Settings > Actions > General > "Allow GitHub Actions to create and approve pull requests".
 on:
   schedule:
-    - cron: "41 4 * * 1"
+    - cron: "41 4 2 * *"
   workflow_dispatch:
 
 permissions:
@@ -27,6 +28,8 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       BRANCH: automation/upstream-update
+      # A broken or hijacked release is usually caught and pulled within days, so only take ones this old.
+      MIN_AGE_DAYS: "30"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -36,7 +39,10 @@ jobs:
         id: uosc
         run: |
           current=$(sed -n "s/^local uosc_version = '\(.*\)'/\1/p" scripts/uosc/main.lua)
-          latest=$(gh api repos/tomasklaen/uosc/releases/latest --jq .tag_name)
+          cutoff=$(date -u -d "-$MIN_AGE_DAYS days" +%Y-%m-%dT%H:%M:%SZ)
+          latest=$(gh api "repos/tomasklaen/uosc/releases?per_page=50" --jq \
+            "[.[] | select(.draft | not) | select(.prerelease | not) | select(.published_at <= \"$cutoff\")][0].tag_name // empty")
+          [[ -n "$latest" ]] || { echo "No uosc release is $MIN_AGE_DAYS days old yet."; exit 0; }
           echo "current=$current" >> "$GITHUB_OUTPUT"
           echo "latest=$latest" >> "$GITHUB_OUTPUT"
           newest=$(printf '%s\n%s\n' "$current" "$latest" | sort -V | tail -n1)
@@ -57,7 +63,9 @@ jobs:
       - name: Update thumbfast
         id: thumbfast
         run: |
-          sha=$(gh api repos/po5/thumbfast/commits/master --jq .sha)
+          cutoff=$(date -u -d "-$MIN_AGE_DAYS days" +%Y-%m-%dT%H:%M:%SZ)
+          sha=$(gh api "repos/po5/thumbfast/commits?sha=master&until=$cutoff&per_page=1" --jq '.[0].sha // empty')
+          [[ -n "$sha" ]] || { echo "No thumbfast commit is $MIN_AGE_DAYS days old yet."; exit 0; }
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
           curl -fsSL --retry 3 -o scripts/thumbfast.lua \
             "https://raw.githubusercontent.com/po5/thumbfast/$sha/thumbfast.lua"
@@ -97,7 +105,7 @@ jobs:
           git commit -q -m "chore: update upstream scripts"
           git push --force origin "$BRANCH"
           body=$(cat <<EOF
-          Automated weekly update. \`.github/scripts/check.py\` and the LuaJIT compile passed on these files.
+          Automated monthly update (releases and commits at least 30 days old). \`.github/scripts/check.py\` and the LuaJIT compile passed on these files.
 
           - uosc: $UOSC_CURRENT → $UOSC_LATEST (unchanged if equal) — https://github.com/tomasklaen/uosc/releases
           - thumbfast: po5/thumbfast@$THUMBFAST_SHA
