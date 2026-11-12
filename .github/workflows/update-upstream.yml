@@ -1,8 +1,8 @@
 name: Update upstream scripts
 
 # Weekly: pulls the latest uosc release and thumbfast, checks them against this config,
-# and opens (or refreshes) one pull request, then starts Validate on it. Validate merges it when uosc keeps its
-# major version and changes no bundled binary; thumbfast and binary changes wait for a person.
+# and opens (or refreshes) one pull request, then starts Validate on it. It never merges: upstream code
+# (Lua that mpv runs, bundled executables) reaches main only after a person reads the diff.
 # Needs Settings > Actions > General > "Allow GitHub Actions to create and approve pull requests".
 on:
   schedule:
@@ -107,7 +107,7 @@ jobs:
           ${ZIGGY:-unchanged}
           \`\`\`
 
-          Before merging, compare \`script-opts/uosc.conf\` with the release's \`uosc.conf\` for new options.
+          Upstream code runs inside mpv, so read the diff before merging. Also compare \`script-opts/uosc.conf\` with the release's \`uosc.conf\` for new options.
           EOF
           )
           if [ "$(gh pr list --head "$BRANCH" --state open --json number --jq length)" = "0" ]; then
