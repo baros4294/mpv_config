@@ -12,3 +12,10 @@ scripts/uosc/** linguist-vendored
 scripts/thumbfast.lua linguist-vendored
 shaders/** linguist-vendored
 fonts/** linguist-vendored
+
+# Repository tooling stays out of release zips.
+.github/         export-ignore
+.gitattributes   export-ignore
+CONTRIBUTING.md  export-ignore
+CODE_OF_CONDUCT.md export-ignore
+SECURITY.md      export-ignore

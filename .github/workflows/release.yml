@@ -1,0 +1,40 @@
+name: Release
+
+# Pushing a version tag (git tag v1.2.0 && git push origin v1.2.0) publishes a GitHub release with
+# notes generated from the merged pull requests and a zip to extract into mpv's config folder.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check config against scripts
+        run: python3 .github/scripts/check.py
+
+      # .gitattributes marks the repository tooling export-ignore, so the zip holds only what mpv reads.
+      - name: Build zip
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          git archive --format=zip -o "mpv_config-$TAG.zip" "$TAG"
+          sha256sum "mpv_config-$TAG.zip" > SHA256SUMS.txt
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" --verify-tag --generate-notes --title "$TAG" \
+            "mpv_config-$TAG.zip" SHA256SUMS.txt
