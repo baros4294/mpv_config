@@ -33,8 +33,10 @@ jobs:
           find scripts -name '*.lua' -print0 | xargs -0 -n1 sh -c 'luajit -b "$0" /dev/null || exit 255'
 
   # The weekly "Update upstream scripts" pull request starts this workflow by hand (pull requests opened with
-  # the Actions token start no checks on their own). When the checks above pass and uosc keeps its major
-  # version, merge it; a new uosc major version waits for a person.
+  # the Actions token start no checks on their own). It merges only a uosc minor or patch release whose
+  # bundled ziggy binaries are byte-for-byte unchanged. Anything else waits for a person to read the diff:
+  # a thumbfast change (it tracks a moving branch), any change to an executable, any file outside uosc,
+  # or a new uosc major version. Checks prove the config still fits; they can't prove upstream code is benign.
   merge-upstream-update:
     needs: validate
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/automation/upstream-update'
@@ -44,7 +46,7 @@ jobs:
       contents: write
       pull-requests: write
     steps:
-      - name: Merge unless uosc changes major version
+      - name: Merge a uosc-only minor or patch update
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
@@ -58,4 +60,13 @@ jobs:
           old=$(version "$BASE"); new=$(version "$TESTED_SHA")
           [[ -n "$old" && -n "$new" ]] || { echo "Couldn't read the uosc versions; leaving it for a person."; exit 0; }
           if [[ "${old%%.*}" != "${new%%.*}" ]]; then echo "uosc $old -> $new is a major update; leaving it for a person."; exit 0; fi
+          changed=$(gh api --paginate "repos/$REPO/compare/$BASE...$TESTED_SHA" --jq '.files[].filename')
+          [[ -n "$changed" ]] || { echo "No changed files found; leaving it for a person."; exit 0; }
+          held=$(grep -vE '^(scripts/uosc/|fonts/uosc_)' <<<"$changed" || true)
+          held+=$'\n'$(grep -E '^scripts/uosc/bin/' <<<"$changed" || true)
+          if [[ -n "${held//$'\n'/}" ]]; then
+            echo "These files need a person to review them, so the pull request stays open:"
+            sed '/^$/d' <<<"$held"
+            exit 0
+          fi
           gh pr merge automation/upstream-update --repo "$REPO" --squash --match-head-commit "$TESTED_SHA"

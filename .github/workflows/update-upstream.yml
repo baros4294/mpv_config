@@ -2,7 +2,7 @@ name: Update upstream scripts
 
 # Weekly: pulls the latest uosc release and thumbfast, checks them against this config,
 # and opens (or refreshes) one pull request, then starts Validate on it. Validate merges it when uosc keeps its
-# major version; a new uosc major version waits for a person.
+# major version and changes no bundled binary; thumbfast and binary changes wait for a person.
 # Needs Settings > Actions > General > "Allow GitHub Actions to create and approve pull requests".
 on:
   schedule:
